@@ -1,0 +1,144 @@
+name: CloudScan - Terraform Security Analysis
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.tf'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**.tf'
+
+jobs:
+  cloudscan-analysis:
+    name: CloudScan ML Security Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for diff detection
+
+      - name: Detect Changed Terraform Files
+        id: detect_changes
+        run: |
+          echo "🔍 Detecting changed .tf files..."
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} -- '*.tf')
+          else
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- '*.tf' 2>/dev/null || git ls-files '*.tf')
+          fi
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No .tf files changed. Skipping scan."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "$CHANGED_FILES" > /tmp/changed_tf_files.txt
+          fi
+
+      - name: Package Terraform Files
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        run: |
+          echo "📦 Packaging Terraform files for analysis..."
+          mkdir -p /tmp/tf_package
+          # Copy all .tf files (entire infrastructure context needed for graph)
+          find . -name "*.tf" -not -path "./.terraform/*" -exec cp {} /tmp/tf_package/ \;
+          echo "Files packaged:"
+          ls -la /tmp/tf_package/
+          cd /tmp && zip -r terraform_scan.zip tf_package/
+          echo "✅ Package created: terraform_scan.zip ($(du -h /tmp/terraform_scan.zip | cut -f1))"
+
+      - name: Build Infrastructure Graph
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        run: |
+          echo "🔗 Building infrastructure dependency graph..."
+          echo "================================================"
+          echo "  [PLACEHOLDER] Graph Construction Module"
+          echo "================================================"
+          echo ""
+          echo "In production, this step will:"
+          echo "  1. Parse .tf files to extract resources"
+          echo "  2. Build a heterogeneous graph (nodes = resources, edges = dependencies)"
+          echo "  3. Generate node features from resource configurations"
+          echo "  4. Export graph in PyTorch Geometric format"
+          echo ""
+          echo "Resources that would be detected:"
+          grep -rh "resource \"" /tmp/tf_package/*.tf 2>/dev/null | sed 's/resource "\(.*\)" "\(.*\)".*/  → \1.\2/' || true
+          echo ""
+          echo "✅ Graph construction placeholder complete"
+
+      - name: Run RGCN Risk Classification
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        run: |
+          echo "🤖 Running RGCN model for risk classification..."
+          echo "================================================"
+          echo "  [PLACEHOLDER] RGCN Inference Module"
+          echo "================================================"
+          echo ""
+          echo "In production, this step will:"
+          echo "  1. Load the trained RGCN model (rgcn_model.pth)"
+          echo "  2. Run inference on the infrastructure graph"
+          echo "  3. Classify each resource node: low_risk / medium_risk / high_risk"
+          echo "  4. Detect risk propagation across connected resources"
+          echo ""
+          echo "⚠️  Simulated findings:"
+          echo "  [HIGH_RISK] aws_security_group.splunk-sg → SSH port 22 open to 0.0.0.0/0"
+          echo "  [MEDIUM_RISK] aws_instance.ec2-demo → Connected to high-risk security group"
+          echo "  [LOW_RISK] aws_vpc.splunk-vpc → Standard configuration"
+          echo ""
+          echo "✅ RGCN inference placeholder complete"
+
+      - name: LLM Remediation Analysis
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        run: |
+          echo "💡 Generating LLM-powered remediation suggestions..."
+          echo "================================================"
+          echo "  [PLACEHOLDER] LLM Remediation Module"
+          echo "================================================"
+          echo ""
+          echo "In production, this step will:"
+          echo "  1. Take high-risk findings from the RGCN model"
+          echo "  2. Send to LLM with infrastructure context"
+          echo "  3. Generate specific remediation code suggestions"
+          echo ""
+          echo "📝 Simulated LLM Response:"
+          echo "──────────────────────────────────────────────"
+          echo "FINDING: SSH port 22 is open to 0.0.0.0/0 in sg.tf"
+          echo ""
+          echo "RISK: This allows SSH access from any IP address on the internet,"
+          echo "making the EC2 instance vulnerable to brute-force attacks."
+          echo ""
+          echo "SUGGESTED FIX:"
+          echo '  cidr_blocks = ["YOUR_IP/32"]  # Restrict to your IP only'
+          echo "──────────────────────────────────────────────"
+          echo ""
+          echo "✅ LLM remediation placeholder complete"
+
+      - name: Post Results Summary
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        run: |
+          echo ""
+          echo "╔══════════════════════════════════════════════╗"
+          echo "║       CloudScan Analysis Complete            ║"
+          echo "╠══════════════════════════════════════════════╣"
+          echo "║  Resources Scanned:  6                      ║"
+          echo "║  High Risk:          1                      ║"
+          echo "║  Medium Risk:        1                      ║"
+          echo "║  Low Risk:           4                      ║"
+          echo "║                                              ║"
+          echo "║  Status: ❌ FAILED - High risk issues found  ║"
+          echo "╚══════════════════════════════════════════════╝"
+          echo ""
+          # In production: post as PR comment using GitHub API
+          # Fail the build if high-risk issues are found
+          exit 1
+
+      - name: All Clear
+        if: steps.detect_changes.outputs.has_changes == 'false'
+        run: |
+          echo "✅ No Terraform changes detected. Pipeline passed."
