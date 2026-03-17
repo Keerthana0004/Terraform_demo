@@ -53,90 +53,149 @@ jobs:
           cd /tmp && zip -r terraform_scan.zip tf_package/
           echo "✅ Package created: terraform_scan.zip ($(du -h /tmp/terraform_scan.zip | cut -f1))"
 
-      - name: Build Infrastructure Graph
+      - name: Set up Python
         if: steps.detect_changes.outputs.has_changes == 'true'
-        run: |
-          echo "🔗 Building infrastructure dependency graph..."
-          echo "================================================"
-          echo "  [PLACEHOLDER] Graph Construction Module"
-          echo "================================================"
-          echo ""
-          echo "In production, this step will:"
-          echo "  1. Parse .tf files to extract resources"
-          echo "  2. Build a heterogeneous graph (nodes = resources, edges = dependencies)"
-          echo "  3. Generate node features from resource configurations"
-          echo "  4. Export graph in PyTorch Geometric format"
-          echo ""
-          echo "Resources that would be detected:"
-          grep -rh "resource \"" /tmp/tf_package/*.tf 2>/dev/null | sed 's/resource "\(.*\)" "\(.*\)".*/  → \1.\2/' || true
-          echo ""
-          echo "✅ Graph construction placeholder complete"
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-      - name: Run RGCN Risk Classification
+      - name: Clone CloudScan Backend
         if: steps.detect_changes.outputs.has_changes == 'true'
         run: |
-          echo "🤖 Running RGCN model for risk classification..."
-          echo "================================================"
-          echo "  [PLACEHOLDER] RGCN Inference Module"
-          echo "================================================"
-          echo ""
-          echo "In production, this step will:"
-          echo "  1. Load the trained RGCN model (rgcn_model.pth)"
-          echo "  2. Run inference on the infrastructure graph"
-          echo "  3. Classify each resource node: low_risk / medium_risk / high_risk"
-          echo "  4. Detect risk propagation across connected resources"
-          echo ""
-          echo "⚠️  Simulated findings:"
-          echo "  [HIGH_RISK] aws_security_group.splunk-sg → SSH port 22 open to 0.0.0.0/0"
-          echo "  [MEDIUM_RISK] aws_instance.ec2-demo → Connected to high-risk security group"
-          echo "  [LOW_RISK] aws_vpc.splunk-vpc → Standard configuration"
-          echo ""
-          echo "✅ RGCN inference placeholder complete"
+          echo "📥 Cloning CloudScan inference backend..."
+          git clone https://github.com/${{ github.repository_owner }}/CloudScan.git /tmp/cloudscan
+          echo "✅ CloudScan backend cloned"
 
-      - name: LLM Remediation Analysis
+      - name: Install Backend Dependencies
         if: steps.detect_changes.outputs.has_changes == 'true'
         run: |
-          echo "💡 Generating LLM-powered remediation suggestions..."
-          echo "================================================"
-          echo "  [PLACEHOLDER] LLM Remediation Module"
-          echo "================================================"
+          echo "📦 Installing Python dependencies..."
+          cd /tmp/cloudscan/inference
+          pip install -r requirements.txt
+          echo "✅ Dependencies installed"
+
+      - name: Start CloudScan API Server
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        run: |
+          echo "🚀 Starting CloudScan API server..."
+          cd /tmp/cloudscan/inference
+          python api_server.py &
+          API_PID=$!
+          echo "API_PID=$API_PID" >> $GITHUB_ENV
+
+          # Wait for the server to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:5000/api/health | grep -q '"status":"ok"'; then
+              echo "✅ API server is ready"
+              break
+            fi
+            echo "  Waiting for API server... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run CloudScan Analysis (Graph + RGCN + LLM Remediation)
+        if: steps.detect_changes.outputs.has_changes == 'true'
+        id: cloudscan_analysis
+        run: |
+          echo "🔍 Sending Terraform files to CloudScan API for analysis..."
+          echo "  → Building infrastructure graph"
+          echo "  → Running RGCN risk classification"
+          echo "  → Generating LLM remediation suggestions"
           echo ""
-          echo "In production, this step will:"
-          echo "  1. Take high-risk findings from the RGCN model"
-          echo "  2. Send to LLM with infrastructure context"
-          echo "  3. Generate specific remediation code suggestions"
+
+          # Build the curl command with all .tf files
+          CURL_ARGS="-s -X POST"
+          for tf_file in /tmp/tf_package/*.tf; do
+            CURL_ARGS="$CURL_ARGS -F files=@$tf_file"
+          done
+
+          # Call the CloudScan /api/scan endpoint
+          RESPONSE=$(curl $CURL_ARGS "http://localhost:5000/api/scan?threshold=1&remediation=true")
+
+          # Save response for later steps
+          echo "$RESPONSE" > /tmp/cloudscan_result.json
+          echo "$RESPONSE" | python3 -m json.tool || echo "$RESPONSE"
+
+          # Extract results
+          SUCCESS=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('success', False))")
+          if [ "$SUCCESS" != "True" ]; then
+            echo "❌ CloudScan API returned an error"
+            ERROR=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('error','Unknown error'))")
+            echo "Error: $ERROR"
+            exit 1
+          fi
+
           echo ""
-          echo "📝 Simulated LLM Response:"
-          echo "──────────────────────────────────────────────"
-          echo "FINDING: SSH port 22 is open to 0.0.0.0/0 in sg.tf"
-          echo ""
-          echo "RISK: This allows SSH access from any IP address on the internet,"
-          echo "making the EC2 instance vulnerable to brute-force attacks."
-          echo ""
-          echo "SUGGESTED FIX:"
-          echo '  cidr_blocks = ["YOUR_IP/32"]  # Restrict to your IP only'
-          echo "──────────────────────────────────────────────"
-          echo ""
-          echo "✅ LLM remediation placeholder complete"
+          echo "✅ CloudScan analysis complete"
 
       - name: Post Results Summary
         if: steps.detect_changes.outputs.has_changes == 'true'
         run: |
           echo ""
+          RESPONSE=$(cat /tmp/cloudscan_result.json)
+
+          # Parse risk summary
+          SAFE=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['risk_summary'].get('Safe',0))")
+          LOW=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['risk_summary'].get('Low',0))")
+          MEDIUM=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['risk_summary'].get('Medium',0))")
+          HIGH=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['risk_summary'].get('High/Critical',0))")
+          FILES=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('files_received',0))")
+          NODES=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['graph_stats'].get('num_nodes',0))")
+          EDGES=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['graph_stats'].get('num_edges',0))")
+          TOTAL=$((SAFE + LOW + MEDIUM + HIGH))
+
           echo "╔══════════════════════════════════════════════╗"
           echo "║       CloudScan Analysis Complete            ║"
           echo "╠══════════════════════════════════════════════╣"
-          echo "║  Resources Scanned:  6                      ║"
-          echo "║  High Risk:          1                      ║"
-          echo "║  Medium Risk:        1                      ║"
-          echo "║  Low Risk:           4                      ║"
-          echo "║                                              ║"
-          echo "║  Status: ❌ FAILED - High risk issues found  ║"
+          printf "║  Files Scanned:    %-4s                      ║\n" "$FILES"
+          printf "║  Graph Nodes:      %-4s                      ║\n" "$NODES"
+          printf "║  Graph Edges:      %-4s                      ║\n" "$EDGES"
+          printf "║  Resources:        %-4s                      ║\n" "$TOTAL"
+          echo "║──────────────────────────────────────────────║"
+          printf "║  🟢 Safe:          %-4s                      ║\n" "$SAFE"
+          printf "║  🟡 Low Risk:      %-4s                      ║\n" "$LOW"
+          printf "║  🟠 Medium Risk:   %-4s                      ║\n" "$MEDIUM"
+          printf "║  🔴 High/Critical: %-4s                      ║\n" "$HIGH"
           echo "╚══════════════════════════════════════════════╝"
           echo ""
-          # In production: post as PR comment using GitHub API
+
+          # Print flagged resources
+          FLAGGED_COUNT=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(len(r.get('flagged_resources',[])))")
+          if [ "$FLAGGED_COUNT" -gt 0 ]; then
+            echo "⚠️  Flagged Resources:"
+            echo "$RESPONSE" | python3 -c "
+          import sys, json
+          r = json.load(sys.stdin)
+          for res in r.get('flagged_resources', []):
+              print(f\"  [{res['risk_label'].upper()}] {res['resource_type']}.{res['node_id']}\")
+          "
+            echo ""
+          fi
+
+          # Print remediation if available
+          REMEDIATION=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); rem=r.get('remediation',''); print(rem if rem else '')")
+          if [ -n "$REMEDIATION" ]; then
+            echo "💡 LLM Remediation Suggestions:"
+            echo "──────────────────────────────────────────────"
+            echo "$REMEDIATION"
+            echo "──────────────────────────────────────────────"
+            echo ""
+          fi
+
           # Fail the build if high-risk issues are found
-          exit 1
+          if [ "$HIGH" -gt 0 ]; then
+            echo "❌ FAILED - High/Critical risk issues found"
+            exit 1
+          else
+            echo "✅ PASSED - No high-risk issues detected"
+          fi
+
+      - name: Stop API Server
+        if: always()
+        run: |
+          if [ -n "$API_PID" ]; then
+            kill $API_PID 2>/dev/null || true
+          fi
 
       - name: All Clear
         if: steps.detect_changes.outputs.has_changes == 'false'
