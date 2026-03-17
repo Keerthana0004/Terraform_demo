@@ -1,6 +1,4 @@
-# ============================================
-# INTENTIONALLY INSECURE - For CloudScan Testing
-# ============================================
+
 
 # ❌ S3 bucket with no encryption and public access
 resource "aws_s3_bucket" "public_data" {
