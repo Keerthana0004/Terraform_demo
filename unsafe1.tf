@@ -44,23 +44,6 @@ resource "aws_security_group" "wide_open_sg" {
   }
 }
 
-# ❌ RDS database with no encryption, public access, and weak password
-resource "aws_db_instance" "exposed_db" {
-  allocated_storage      = 20
-  engine                 = "mysql"
-  engine_version         = "8.0"
-  instance_class         = "db.t3.micro"
-  db_name                = "production_db"
-  username               = "admin"
-  password               = "password123"
-  publicly_accessible    = true
-  storage_encrypted      = false
-  skip_final_snapshot    = true
-  backup_retention_period = 0
-
-  vpc_security_group_ids = [aws_security_group.wide_open_sg.id]
-}
-
 # ❌ EC2 instance with no monitoring, using the wide-open security group
 resource "aws_instance" "unprotected_server" {
   ami           = "ami-0c55b159cbfafe1f0"
