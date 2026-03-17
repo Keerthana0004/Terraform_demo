@@ -76,9 +76,17 @@ jobs:
 
       - name: Start CloudScan API Server
         if: steps.detect_changes.outputs.has_changes == 'true'
+        env:
+          OPEN_ROUTER_KEY: ${{ secrets.OPEN_ROUTER_KEY }}
         run: |
           echo "🚀 Starting CloudScan API server..."
           cd /tmp/cloudscan/inference
+          echo "OPEN_ROUTER_KEY=${OPEN_ROUTER_KEY}" > .env
+          if [ -n "$OPEN_ROUTER_KEY" ]; then
+            echo "✅ API key loaded from secrets"
+          else
+            echo "⚠️  No OPEN_ROUTER_KEY secret found"
+          fi
           python api_server.py &
           API_PID=$!
           echo "API_PID=$API_PID" >> $GITHUB_ENV
