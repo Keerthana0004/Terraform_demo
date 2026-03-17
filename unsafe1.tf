@@ -1,5 +1,4 @@
 
-
 # ❌ S3 bucket with no encryption and public access
 resource "aws_s3_bucket" "public_data" {
   bucket = "my-public-data-bucket"
@@ -44,6 +43,8 @@ resource "aws_security_group" "wide_open_sg" {
   }
 }
 
+
+
 # ❌ EC2 instance with no monitoring, using the wide-open security group
 resource "aws_instance" "unprotected_server" {
   ami           = "ami-0c55b159cbfafe1f0"
@@ -63,19 +64,5 @@ resource "aws_instance" "unprotected_server" {
   }
 }
 
-# ❌ IAM policy with wildcard permissions
-resource "aws_iam_role_policy" "overprivileged" {
-  name = "overprivileged-policy"
-  role = "admin-role"
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = "*"
-        Resource = "*"
-      }
-    ]
-  })
 }
