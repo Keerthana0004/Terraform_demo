@@ -13,4 +13,4 @@ resource "aws_instance" "ec2-demo" {
   }
 
 
-}
+}# final test with LLM remediation
