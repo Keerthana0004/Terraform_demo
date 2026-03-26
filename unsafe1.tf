@@ -44,24 +44,6 @@ resource "aws_security_group" "wide_open_sg" {
   }
 }
 
-# ❌ EC2 instance with no monitoring, using the wide-open security group
-resource "aws_instance" "unprotected_server" {
-  ami           = "ami-0c55b159cbfafe1f0"
-  instance_type = "t2.micro"
-
-  vpc_security_group_ids = [aws_security_group.wide_open_sg.id]
-  subnet_id              = aws_subnet.splunk-public-subnet-1.id
-
-  metadata_options {
-    http_tokens = "optional"
-  }
-
-  monitoring = false
-
-  tags = {
-    Name = "Unprotected Server"
-  }
-}
 
 # ❌ IAM policy with wildcard permissions
 resource "aws_iam_role_policy" "overprivileged" {
