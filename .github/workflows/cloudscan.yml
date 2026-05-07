@@ -190,12 +190,15 @@ jobs:
             echo ""
           fi
 
-          # Fail the build if high-risk issues are found
+          # Fail the build if medium or higher risk issues are found
           if [ "$HIGH" -gt 0 ]; then
             echo "❌ FAILED - High/Critical risk issues found"
             exit 1
+          elif [ "$MEDIUM" -gt 0 ]; then
+            echo "❌ FAILED - Medium risk issues found"
+            exit 1
           else
-            echo "✅ PASSED - No high-risk issues detected"
+            echo "✅ PASSED - No medium or high-risk issues detected"
           fi
 
       - name: Stop API Server
