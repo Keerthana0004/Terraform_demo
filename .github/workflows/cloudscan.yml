@@ -139,7 +139,9 @@ jobs:
       - name: Post Results Summary
         if: steps.detect_changes.outputs.has_changes == 'true'
         run: |
-          echo ""
+          # Turn off command echoing for a clean log
+          set +x
+          
           RESPONSE=$(cat /tmp/cloudscan_result.json)
 
           # Parse risk summary
@@ -152,6 +154,7 @@ jobs:
           EDGES=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['graph_stats'].get('num_edges',0))")
           TOTAL=$((SAFE + LOW + MEDIUM + HIGH))
 
+          # 1. Print clean box to logs
           echo "╔══════════════════════════════════════════════╗"
           echo "║       CloudScan Analysis Complete            ║"
           echo "╠══════════════════════════════════════════════╣"
@@ -165,29 +168,37 @@ jobs:
           printf "║  🟠 Medium Risk:   %-4s                      ║\n" "$MEDIUM"
           printf "║  🔴 High/Critical: %-4s                      ║\n" "$HIGH"
           echo "╚══════════════════════════════════════════════╝"
-          echo ""
+
+          # 2. Generate Beautiful Markdown Summary (The "Viva Wow" factor)
+          echo "### 🛡️ CloudScan Security Report" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📁 Files Scanned | $FILES |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🕸️ Graph Nodes | $NODES |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔗 Graph Edges | $EDGES |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 **Safe** | $SAFE |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 **Low Risk** | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 **Medium Risk** | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 **High/Critical** | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
           # Print flagged resources
           FLAGGED_COUNT=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(len(r.get('flagged_resources',[])))")
           if [ "$FLAGGED_COUNT" -gt 0 ]; then
-            echo "⚠️  Flagged Resources:"
+            echo "#### ⚠️ Flagged Resources" >> $GITHUB_STEP_SUMMARY
             echo "$RESPONSE" | python3 -c "
           import sys, json
           r = json.load(sys.stdin)
           for res in r.get('flagged_resources', []):
-              print(f\"  [{res['risk_label'].upper()}] {res['resource_type']}.{res['node_id']}\")
-          "
-            echo ""
+              print(f\"- **[{res['risk_label'].upper()}]** `{res['resource_type']}.{res['node_id']}`\")
+          " >> $GITHUB_STEP_SUMMARY
           fi
 
-          # Print remediation if available
+          # Print remediation
           REMEDIATION=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); rem=r.get('remediation',''); print(rem if rem else '')")
           if [ -n "$REMEDIATION" ]; then
-            echo "💡 LLM Remediation Suggestions:"
-            echo "──────────────────────────────────────────────"
-            echo "$REMEDIATION"
-            echo "──────────────────────────────────────────────"
-            echo ""
+            echo "#### 💡 LLM Remediation Suggestions" >> $GITHUB_STEP_SUMMARY
+            echo "$REMEDIATION" >> $GITHUB_STEP_SUMMARY
           fi
 
           # Fail the build if medium or higher risk issues are found
