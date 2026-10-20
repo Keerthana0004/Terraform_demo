@@ -7,4 +7,5 @@ resource "aws_instance" "web_server" {
   subnet_id              = aws_subnet.viva_subnet.id
 
   tags = { Name = "Web-Server" }
+
 }
